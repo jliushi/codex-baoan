@@ -1,5 +1,5 @@
 export type SourceStatus = "ok" | "missing" | "error";
-export type ProviderStatus = "ready" | "needs-auth" | "unconfigured";
+export type ProviderStatus = "ready" | "needs-auth" | "auth-unverified" | "unconfigured";
 export type GuardMode = "audit" | "block";
 export type Severity = "info" | "low" | "medium" | "high" | "critical";
 export type KnownProviderSource = "ccswitch" | "codexplusplus" | "codex-config";
@@ -71,6 +71,7 @@ export interface ActivityEvent {
 export interface AppInfo {
   version: string;
   install_dir: string;
+  sessions_dir: string;
   bundle_managed: boolean;
   updater_configured: boolean;
   portable_mode: boolean;
@@ -88,4 +89,17 @@ export interface InspectDecision {
   action: "allow" | "block";
   message: string;
   matched_paths: string[];
+}
+
+export type RoutingVerdict = "match" | "mismatch" | "unknown" | "error";
+
+export interface ModelRoutingResult {
+  requested_model: string;
+  reported_model?: string;
+  verdict: RoutingVerdict;
+  conflict: boolean;
+  observed: string[];
+  endpoint: string;
+  http_status?: number;
+  detail: string;
 }

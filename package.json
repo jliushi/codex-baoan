@@ -1,6 +1,6 @@
 {
   "name": "codex-baoan",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Codex 保安: Tauri desktop guard for Codex provider monitoring.",
   "type": "module",
   "packageManager": "pnpm@9.15.9",
@@ -38,13 +38,13 @@
     "desktop-app"
   ],
   "license": "MIT",
-  "homepage": "https://github.com/jiangliushi666/codex-baoan#readme",
+  "homepage": "https://github.com/jliushi/codex-baoan#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/jiangliushi666/codex-baoan.git"
+    "url": "git+https://github.com/jliushi/codex-baoan.git"
   },
   "bugs": {
-    "url": "https://github.com/jiangliushi666/codex-baoan/issues"
+    "url": "https://github.com/jliushi/codex-baoan/issues"
   },
   "engines": {
     "node": ">=20.0.0",
