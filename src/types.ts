@@ -91,6 +91,60 @@ export interface InspectDecision {
   matched_paths: string[];
 }
 
+export type EvidenceLevel = "tokenizer_fingerprint" | "self_reported" | "undetermined";
+
+export interface AuditSourceInfo {
+  id: string;
+  label: string;
+  path: string;
+  available: boolean;
+  records: number;
+}
+
+export interface AuditAnomalyCategory {
+  key: string;
+  label: string;
+  count: number;
+}
+
+export interface AuditBreakdownRow {
+  requested_model: string;
+  actual_model: string;
+  evidence_level: EvidenceLevel;
+  count: number;
+}
+
+export interface AuditReportRow {
+  id: string;
+  time: string;
+  source: string;
+  provider: string;
+  requested_model: string;
+  actual_model: string;
+  evidence_level: EvidenceLevel;
+  input_tokens?: number;
+  output_tokens?: number;
+  reasoning_tokens?: number;
+  status_code?: number;
+  categories: string[];
+}
+
+export interface DailyAudit {
+  date: string;
+  generated_at: string;
+  sources: AuditSourceInfo[];
+  total_requests: number;
+  analyzed_requests: number;
+  errors: number;
+  anomaly_total: number;
+  clean_requests: number;
+  anomalies: AuditAnomalyCategory[];
+  actual_model_breakdown: AuditBreakdownRow[];
+  tokens: { input: number; output: number; total: number };
+  rows: AuditReportRow[];
+  limitations: string[];
+}
+
 export type RoutingVerdict = "match" | "mismatch" | "unknown" | "error";
 
 export interface ModelRoutingResult {

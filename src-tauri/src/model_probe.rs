@@ -198,7 +198,11 @@ pub fn probe(base_url: &str, api_key: &str, model: &str) -> ModelRoutingResult {
     let body = response.text().unwrap_or_default();
 
     if !status.is_success() {
-        result.detail = format!("上游返回 HTTP {}：{}", status.as_u16(), truncate(&body, 200));
+        result.detail = format!(
+            "上游返回 HTTP {}：{}",
+            status.as_u16(),
+            truncate(&body, 200)
+        );
         return result;
     }
 
@@ -238,9 +242,7 @@ pub(crate) fn detect_model_routing(
         (base_url.unwrap(), api_key.unwrap(), model.unwrap())
     } else {
         let config = crate::codex_config::resolve_active()?;
-        let base_url = base_url
-            .or(config.base_url)
-            .ok_or("未能确定上游地址")?;
+        let base_url = base_url.or(config.base_url).ok_or("未能确定上游地址")?;
         // 凭据回退顺序：显式传入 → 解析出的 API Key → ChatGPT 订阅 OAuth token
         let api_key = api_key
             .or(config.api_key)

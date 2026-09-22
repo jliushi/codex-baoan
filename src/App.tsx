@@ -37,8 +37,19 @@ import {
   X
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ActivityEvent, ActivityFilter, ActivityKind, AppState, DiscoveredProvider, GuardMode, ModelRoutingResult, RoutingVerdict } from "./types";
+import type { ActivityEvent, ActivityFilter, ActivityKind, AppState, DailyAudit, DiscoveredProvider, EvidenceLevel, GuardMode, ModelRoutingResult, RoutingVerdict } from "./types";
 import ccswitchIcon from "./assets/ccswitch.png";
+
+// 北京时间 (UTC+08:00) 当天日期，格式 YYYY-MM-DD，用于日报默认日期
+function todayShanghai(): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+}
+
+const EVIDENCE_LABEL: Record<EvidenceLevel, string> = {
+  tokenizer_fingerprint: "分词器指纹",
+  self_reported: "中转自报",
+  undetermined: "无法判定"
+};
 
 type Theme = "light" | "dark" | "system";
 type KpiTone = "primary" | "neutral" | "danger" | "calm";
@@ -97,6 +108,9 @@ export function App() {
   const [managementBusy, setManagementBusy] = useState<string | null>(null);
   const [probeResult, setProbeResult] = useState<ModelRoutingResult | null>(null);
   const [probing, setProbing] = useState(false);
+  const [report, setReport] = useState<DailyAudit | null>(null);
+  const [reportDate, setReportDate] = useState<string>(todayShanghai);
+  const [reportLoading, setReportLoading] = useState(false);
 
   const drawerCloseRef = useRef<HTMLButtonElement>(null);
   const settingsButtonRef = useRef<HTMLButtonElement>(null);
@@ -118,6 +132,23 @@ export function App() {
       setProbing(false);
     }
   }, []);
+
+  const loadReport = useCallback(async (date: string) => {
+    setReportLoading(true);
+    setError("");
+    try {
+      const result = await invoke<DailyAudit>("audit_daily_report", { date });
+      setReport(result);
+    } catch (err) {
+      setError(typeof err === "string" ? err : "读取审计日报失败");
+    } finally {
+      setReportLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadReport(reportDate);
+  }, [reportDate, loadReport]);
 
   const activeUpstream = useMemo(
     () => state.discovery.providers.find((item) => item.id === state.discovery.recommended_provider_id) || state.discovery.providers[0],
@@ -508,6 +539,90 @@ export function App() {
                 {probeResult.observed.length > 1 && <span className="probeResult__endpoint">自报: {probeResult.observed.join(" / ")}</span>}
               </div>
               <p className="probeResult__detail">{probeResult.detail}</p>
+            </div>
+          )}
+        </section>
+
+        <section className="audit" aria-label="模型审计日报">
+          <div className="audit__head">
+            <div className="audit__headText">
+              <h2><Layers size={16} /> 模型审计日报</h2>
+              <p>读一天的日志：总请求、异常请求（路由/替换、Token 矛盾、无效模型、疑似降智），以及异常请求实际是什么模型。按北京时间。</p>
+            </div>
+            <div className="audit__controls">
+              <input type="date" className="audit__date" value={reportDate} max={todayShanghai()} aria-label="选择日期" onChange={(e) => setReportDate(e.target.value)} />
+              <button className="btn btn--soft btn--sm" disabled={reportLoading} aria-label="刷新日报" onClick={() => loadReport(reportDate)}>
+                {reportLoading ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />}
+                刷新
+              </button>
+            </div>
+          </div>
+          {report && (
+            <div className="audit__body">
+              <div className="audit__tiles">
+                <div className="auditTile"><span className="auditTile__label">分析请求</span><strong>{report.analyzed_requests.toLocaleString("zh-CN")}</strong><span className="auditTile__foot">HTTP 异常 {report.errors}</span></div>
+                <div className="auditTile auditTile--alert"><span className="auditTile__label">异常请求</span><strong>{report.anomaly_total.toLocaleString("zh-CN")}</strong><span className="auditTile__foot">命中任一异常规则</span></div>
+                <div className="auditTile auditTile--ok"><span className="auditTile__label">正常请求</span><strong>{report.clean_requests.toLocaleString("zh-CN")}</strong><span className="auditTile__foot">未命中异常</span></div>
+              </div>
+              <div className="audit__cats">
+                {report.anomalies.map((cat) => (
+                  <div key={cat.key} className={["auditCat", cat.count ? "is-hit" : ""].join(" ")}>
+                    <span className="auditCat__count">{cat.count.toLocaleString("zh-CN")}</span>
+                    <span className="auditCat__label">{cat.label}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="audit__subhead"><ShieldAlert size={14} /> 异常请求实际是什么模型<span className="audit__hint">重中之重 · 每行标注证据级别</span></div>
+              <div className="auditTableWrap">
+                <table className="auditTable">
+                  <thead><tr><th>请求模型</th><th>实际模型 · 家族或自报</th><th>证据级别</th><th className="num">次数</th></tr></thead>
+                  <tbody>
+                    {report.actual_model_breakdown.map((row, i) => (
+                      <tr key={i}>
+                        <td><code>{row.requested_model}</code></td>
+                        <td><code className={row.evidence_level !== "undetermined" ? "is-danger" : ""}>{row.actual_model}</code></td>
+                        <td><span className={["evTag", `evTag--${row.evidence_level}`].join(" ")}>{EVIDENCE_LABEL[row.evidence_level]}</span></td>
+                        <td className="num">{row.count.toLocaleString("zh-CN")}</td>
+                      </tr>
+                    ))}
+                    {!report.actual_model_breakdown.length && (
+                      <tr><td className="auditEmpty" colSpan={4}>当日没有检测到异常请求。</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              {report.rows.length > 0 && (
+                <details className="auditDetails">
+                  <summary>展开异常请求明细（{report.rows.length} 条）</summary>
+                  <div className="auditTableWrap">
+                    <table className="auditTable">
+                      <thead><tr><th>时间</th><th>来源</th><th>供应商</th><th>请求</th><th>实际</th><th className="num">输入</th><th className="num">输出</th><th>类型</th></tr></thead>
+                      <tbody>
+                        {report.rows.map((row) => (
+                          <tr key={row.id}>
+                            <td>{row.time}</td>
+                            <td>{row.source === "ccswitch" ? "CC Switch" : "Codex"}</td>
+                            <td>{row.provider}</td>
+                            <td><code>{row.requested_model}</code></td>
+                            <td><code className={row.evidence_level !== "undetermined" ? "is-danger" : ""}>{row.actual_model}</code></td>
+                            <td className="num">{row.input_tokens ?? "—"}</td>
+                            <td className="num">{row.output_tokens ?? "—"}</td>
+                            <td>{row.categories.join("、")}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </details>
+              )}
+              <div className="audit__sources">
+                {report.sources.map((src) => (
+                  <span key={src.id} className={["auditSource", src.available ? "" : "is-off"].join(" ")}>{src.label}：{src.available ? `${src.records} 条` : "不可用"}</span>
+                ))}
+              </div>
+              <ul className="audit__limits">
+                {report.limitations.map((line, i) => <li key={i}>{line}</li>)}
+              </ul>
             </div>
           )}
         </section>

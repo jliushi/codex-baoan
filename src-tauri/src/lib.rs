@@ -17,6 +17,7 @@ use tauri_plugin_autostart::ManagerExt;
 
 mod codex_config;
 mod codex_sessions;
+mod model_audit;
 mod model_probe;
 
 use codex_config::codex_home;
@@ -233,7 +234,8 @@ pub fn run() {
             open_uninstall_settings,
             get_settings,
             set_settings,
-            model_probe::detect_model_routing
+            model_probe::detect_model_routing,
+            model_audit::audit_daily_report
         ])
         .setup(move |app| {
             let config = read_config(app.handle());

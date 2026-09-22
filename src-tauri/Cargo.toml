@@ -1,6 +1,6 @@
 [package]
 name = "codex-baoan"
-version = "0.2.3"
+version = "0.3.0"
 description = "Codex Baoan desktop guard"
 authors = ["jliushi"]
 license = "MIT"
