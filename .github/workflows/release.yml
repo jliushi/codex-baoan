@@ -165,6 +165,21 @@ jobs:
 
           Get-ChildItem release-assets | Format-Table Name, Length
 
+      - name: Setup Go (guard)
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: guard/go.mod
+
+      - name: Build guard MITM exe
+        shell: pwsh
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          Push-Location guard
+          go test ./...
+          go build -ldflags="-H windowsgui -s -w" -o "../release-assets/Codex-Baoan-Guard-$($env:GITHUB_REF_NAME)-Windows.exe" .
+          Pop-Location
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -181,5 +196,6 @@ jobs:
             - `Codex-Baoan-${{ github.ref_name }}-Windows.msi`: 推荐安装版，支持开始菜单、卸载项和应用内更新。
             - `Codex-Baoan-${{ github.ref_name }}-Windows-Setup.exe`: NSIS 安装器。
             - `Codex-Baoan-${{ github.ref_name }}-Windows-Portable.zip`: 便携版，不参与应用内自动更新。
+            - `Codex-Baoan-Guard-${{ github.ref_name }}-Windows.exe`: 模型审计观察器（MITM 分词器指纹，CC Switch 附庸，双击即用）。
 
             `latest.json` 和 `.sig` 文件用于 Tauri 应用内更新，请保留在 Release 资产中。
