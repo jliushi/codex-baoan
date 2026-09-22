@@ -9,193 +9,38 @@ on:
 permissions:
   contents: write
 
-concurrency:
-  group: release-${{ github.ref_name }}
-  cancel-in-progress: true
-
 jobs:
   windows:
-    name: Windows installer
+    name: Windows exe
     runs-on: windows-2022
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-go@v5
         with:
-          node-version: 24
+          go-version-file: go.mod
 
-      - name: Enable Corepack
-        run: corepack enable
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
-
-      - name: Install dependencies
-        run: corepack pnpm install --frozen-lockfile
-
-      - name: Typecheck
-        run: corepack pnpm run typecheck
-
-      - name: Rust format check
-        run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
-
-      # tauri::generate_context! validates frontendDist at compile time, so the
-      # renderer bundle must exist before cargo test compiles the lib.
-      - name: Build renderer
-        run: corepack pnpm run build:renderer
-
-      - name: Rust tests
-        run: cargo test --manifest-path src-tauri/Cargo.toml
-
-      - name: Validate release tag
-        shell: pwsh
-        run: |
-          if ($env:GITHUB_REF_TYPE -ne "tag" -or $env:GITHUB_REF_NAME -notmatch '^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$') {
-            throw "Release workflow must run on a vX.Y.Z tag, not '$($env:GITHUB_REF_NAME)'."
-          }
-
-      - name: Validate updater signing key
-        shell: pwsh
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-        run: |
-          if ([string]::IsNullOrWhiteSpace($env:TAURI_SIGNING_PRIVATE_KEY)) {
-            throw "TAURI_SIGNING_PRIVATE_KEY secret is required to create signed updater artifacts."
-          }
-
-      - name: Build Windows installers
-        shell: pwsh
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: corepack pnpm run build:windows
-
-      - name: Validate Windows GUI subsystem
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $exe = Resolve-Path "src-tauri/target/release/codex-baoan.exe"
-          $bytes = [System.IO.File]::ReadAllBytes($exe)
-          $peOffset = [BitConverter]::ToInt32($bytes, 0x3c)
-          $subsystem = [BitConverter]::ToUInt16($bytes, $peOffset + 0x5c)
-          if ($subsystem -ne 2) {
-            throw "codex-baoan.exe must be built as Windows GUI subsystem (2), got $subsystem."
-          }
-          "codex-baoan.exe subsystem: Windows GUI (2)"
-
-      - name: Collect release assets
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $tag = $env:GITHUB_REF_NAME
-          $version = $tag.TrimStart("v")
-          $repo = $env:GITHUB_REPOSITORY
-          $baseUrl = "https://github.com/$repo/releases/download/$tag"
-          $pubDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-
-          New-Item -ItemType Directory -Force -Path release-assets | Out-Null
-
-          $msi = Get-ChildItem -Path "src-tauri/target/release/bundle/msi" -Recurse -Filter "*.msi" -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($null -eq $msi) {
-            throw "No MSI installer was produced."
-          }
-          $msiName = "Codex-Baoan-$tag-Windows.msi"
-          Copy-Item $msi.FullName (Join-Path "release-assets" $msiName)
-
-          $msiSig = "$($msi.FullName).sig"
-          if (!(Test-Path $msiSig)) {
-            throw "No updater signature found for MSI. Check TAURI_SIGNING_PRIVATE_KEY."
-          }
-          $msiSigName = "$msiName.sig"
-          Copy-Item $msiSig (Join-Path "release-assets" $msiSigName)
-
-          $nsis = Get-ChildItem -Path "src-tauri/target/release/bundle/nsis" -Recurse -Filter "*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($null -eq $nsis) {
-            throw "No NSIS installer was produced."
-          }
-          $nsisName = "Codex-Baoan-$tag-Windows-Setup.exe"
-          Copy-Item $nsis.FullName (Join-Path "release-assets" $nsisName)
-          $nsisSig = "$($nsis.FullName).sig"
-          if (!(Test-Path $nsisSig)) {
-            throw "No updater signature found for NSIS. Check TAURI_SIGNING_PRIVATE_KEY."
-          }
-          $nsisSigName = "$nsisName.sig"
-          Copy-Item $nsisSig (Join-Path "release-assets" $nsisSigName)
-
-          $exe = Get-ChildItem -Path "src-tauri/target/release" -Filter "codex-baoan.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($null -ne $exe) {
-            $portableDir = "release-assets/Codex-Baoan-Portable"
-            New-Item -ItemType Directory -Force -Path $portableDir | Out-Null
-            Copy-Item $exe.FullName $portableDir
-            @(
-              "# Codex Baoan portable build marker",
-              "portable=true"
-            ) | Set-Content -Path (Join-Path $portableDir "portable.ini") -Encoding UTF8
-            Compress-Archive -Path "$portableDir/*" -DestinationPath "release-assets/Codex-Baoan-$tag-Windows-Portable.zip" -Force
-            Remove-Item -Recurse -Force $portableDir
-          }
-
-          $msiSignature = (Get-Content -LiteralPath (Join-Path "release-assets" $msiSigName) -Raw).Trim()
-          $nsisSignature = (Get-Content -LiteralPath (Join-Path "release-assets" $nsisSigName) -Raw).Trim()
-          $latest = [ordered]@{
-            version = $version
-            notes = "Release $tag"
-            pub_date = $pubDate
-            platforms = [ordered]@{
-              "windows-x86_64-msi" = [ordered]@{
-                signature = $msiSignature
-                url = "$baseUrl/$msiName"
-              }
-              "windows-x86_64-nsis" = [ordered]@{
-                signature = $nsisSignature
-                url = "$baseUrl/$nsisName"
-              }
-              "windows-x86_64" = [ordered]@{
-                signature = $msiSignature
-                url = "$baseUrl/$msiName"
-              }
-            }
-          }
-          $latest | ConvertTo-Json -Depth 8 | Set-Content -Path "release-assets/latest.json" -Encoding UTF8
-
-          Get-ChildItem release-assets | Format-Table Name, Length
-
-      - name: Setup Go (guard)
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: guard/go.mod
-
-      - name: Build guard MITM exe
-        shell: pwsh
+      - name: Test
         env:
           CGO_ENABLED: "0"
-        run: |
-          Push-Location guard
-          go test ./...
-          go build -ldflags="-H windowsgui -s -w" -o "../release-assets/Codex-Baoan-Guard-$($env:GITHUB_REF_NAME)-Windows.exe" .
-          Pop-Location
+        run: go test ./...
 
-      - name: Publish GitHub Release
+      - name: Build
+        env:
+          CGO_ENABLED: "0"
+        run: go build -ldflags="-H windowsgui -s -w" -o "Codex-Baoan-${{ github.ref_name }}-Windows.exe" .
+
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
           name: Codex 保安 ${{ github.ref_name }}
-          draft: false
-          prerelease: false
-          files: release-assets/*
+          files: Codex-Baoan-${{ github.ref_name }}-Windows.exe
           body: |
             ## Codex 保安 ${{ github.ref_name }}
 
-            ### Windows 下载
+            模型审计观察器（原生 exe，双击即用）：本机 MITM 抓取 CC Switch 出口的真实请求，分词器指纹识别实际模型家族，CC Switch 风格看板出「总请求 / 异常 / 异常实际是什么模型」。
 
-            - `Codex-Baoan-${{ github.ref_name }}-Windows.msi`: 推荐安装版，支持开始菜单、卸载项和应用内更新。
-            - `Codex-Baoan-${{ github.ref_name }}-Windows-Setup.exe`: NSIS 安装器。
-            - `Codex-Baoan-${{ github.ref_name }}-Windows-Portable.zip`: 便携版，不参与应用内自动更新。
-            - `Codex-Baoan-Guard-${{ github.ref_name }}-Windows.exe`: 模型审计观察器（MITM 分词器指纹，CC Switch 附庸，双击即用）。
+            - `Codex-Baoan-${{ github.ref_name }}-Windows.exe`
 
-            `latest.json` 和 `.sig` 文件用于 Tauri 应用内更新，请保留在 Release 资产中。
+            用法：双击 → 一键信任证书 → 一键接入 CC Switch → 重启一次 CC Switch。
