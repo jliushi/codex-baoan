@@ -71,6 +71,19 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: corepack pnpm run build:windows
 
+      - name: Validate Windows GUI subsystem
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $exe = Resolve-Path "src-tauri/target/release/codex-baoan.exe"
+          $bytes = [System.IO.File]::ReadAllBytes($exe)
+          $peOffset = [BitConverter]::ToInt32($bytes, 0x3c)
+          $subsystem = [BitConverter]::ToUInt16($bytes, $peOffset + 0x5c)
+          if ($subsystem -ne 2) {
+            throw "codex-baoan.exe must be built as Windows GUI subsystem (2), got $subsystem."
+          }
+          "codex-baoan.exe subsystem: Windows GUI (2)"
+
       - name: Collect release assets
         shell: pwsh
         run: |

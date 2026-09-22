@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Codex Baoan",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "identifier": "com.codexbaoan.desktop",
   "build": {
     "frontendDist": "../dist",
@@ -35,7 +35,7 @@
     "createUpdaterArtifacts": true,
     "targets": ["msi", "nsis"],
     "category": "DeveloperTool",
-    "copyright": "MIT © jiangliushi666",
+    "copyright": "MIT © jliushi",
     "shortDescription": "Codex desktop guard",
     "longDescription": "Codex Baoan monitors Codex provider configuration and risky command behavior.",
     "icon": [
@@ -61,7 +61,7 @@
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://github.com/jiangliushi666/codex-baoan/releases/latest/download/latest.json"
+        "https://github.com/jliushi/codex-baoan/releases/latest/download/latest.json"
       ],
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDYwQTkxNkM1RUVBMDU2NTQKUldSVVZxRHV4UmFwWU0rcGNXL1NFMFR1dzRpVjZSNHlRQ0xST09mSTRIZWR4Y1ViOEpvRkNud1IK"
     }

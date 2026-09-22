@@ -14,6 +14,7 @@ import {
   FilePen,
   FilePlus,
   FileStack,
+  Fingerprint,
   FolderOpen,
   Globe,
   Layers,
@@ -36,8 +37,19 @@ import {
   X
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ActivityEvent, ActivityFilter, ActivityKind, AppState, DiscoveredProvider, GuardMode } from "./types";
+import type { ActivityEvent, ActivityFilter, ActivityKind, AppState, DailyAudit, DiscoveredProvider, EvidenceLevel, GuardMode, ModelRoutingResult, RoutingVerdict } from "./types";
 import ccswitchIcon from "./assets/ccswitch.png";
+
+// 北京时间 (UTC+08:00) 当天日期，格式 YYYY-MM-DD，用于日报默认日期
+function todayShanghai(): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+}
+
+const EVIDENCE_LABEL: Record<EvidenceLevel, string> = {
+  tokenizer_fingerprint: "分词器指纹",
+  self_reported: "中转自报",
+  undetermined: "无法判定"
+};
 
 type Theme = "light" | "dark" | "system";
 type KpiTone = "primary" | "neutral" | "danger" | "calm";
@@ -47,7 +59,7 @@ type Settings = { background_run: boolean; silent_start: boolean; autostart: boo
 const THEME_KEY = "cgx-theme";
 
 const emptyState: AppState = {
-  app: { version: "0.2.2", install_dir: "", bundle_managed: false, updater_configured: false, portable_mode: false },
+  app: { version: "0.2.3", install_dir: "", sessions_dir: "", bundle_managed: false, updater_configured: false, portable_mode: false },
   discovery: { generated_at: "", providers: [], sources: [], manual_fallback_reason: "正在读取本机配置…" },
   runtime: { running: false, mode: "audit" },
   activity: []
@@ -70,6 +82,15 @@ function readTheme(): Theme {
   return saved === "light" || saved === "dark" || saved === "system" ? saved : "system";
 }
 
+function verdictLabel(verdict: RoutingVerdict): string {
+  switch (verdict) {
+    case "match": return "自报一致";
+    case "mismatch": return "被路由/替换";
+    case "unknown": return "上游未自报";
+    default: return "检测失败";
+  }
+}
+
 export function App() {
   const [state, setState] = useState<AppState>(emptyState);
   const [activityFilter, setActivityFilter] = useState<ActivityFilter>("all");
@@ -85,6 +106,11 @@ export function App() {
   const [scanning, setScanning] = useState(false);
   const [actionBusy, setActionBusy] = useState(false);
   const [managementBusy, setManagementBusy] = useState<string | null>(null);
+  const [probeResult, setProbeResult] = useState<ModelRoutingResult | null>(null);
+  const [probing, setProbing] = useState(false);
+  const [report, setReport] = useState<DailyAudit | null>(null);
+  const [reportDate, setReportDate] = useState<string>(todayShanghai);
+  const [reportLoading, setReportLoading] = useState(false);
 
   const drawerCloseRef = useRef<HTMLButtonElement>(null);
   const settingsButtonRef = useRef<HTMLButtonElement>(null);
@@ -92,6 +118,37 @@ export function App() {
   const railRef = useRef<HTMLElement>(null);
   const stageRef = useRef<HTMLElement>(null);
   const updateAutoCheckRef = useRef(false);
+
+  const runProbe = useCallback(async () => {
+    setProbing(true);
+    setError("");
+    try {
+      // 不传参：后端读本机 Codex 配置(base_url + 明文 key + model)自动探测
+      const result = await invoke<ModelRoutingResult>("detect_model_routing", {});
+      setProbeResult(result);
+    } catch (err) {
+      setError(typeof err === "string" ? err : "模型检测失败");
+    } finally {
+      setProbing(false);
+    }
+  }, []);
+
+  const loadReport = useCallback(async (date: string) => {
+    setReportLoading(true);
+    setError("");
+    try {
+      const result = await invoke<DailyAudit>("audit_daily_report", { date });
+      setReport(result);
+    } catch (err) {
+      setError(typeof err === "string" ? err : "读取审计日报失败");
+    } finally {
+      setReportLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadReport(reportDate);
+  }, [reportDate, loadReport]);
 
   const activeUpstream = useMemo(
     () => state.discovery.providers.find((item) => item.id === state.discovery.recommended_provider_id) || state.discovery.providers[0],
@@ -111,6 +168,7 @@ export function App() {
         (event) =>
           (event.command || "").toLowerCase().includes(q) ||
           event.title.toLowerCase().includes(q) ||
+          (event.source || "").toLowerCase().includes(q) ||
           event.summary.toLowerCase().includes(q) ||
           event.paths.some((path) => path.toLowerCase().includes(q))
       );
@@ -166,16 +224,12 @@ export function App() {
   );
 
   async function start() {
-    if (!activeUpstream) {
-      setError("未检测到当前 Codex 上游。请先在 ccswitch、Codex++ 或 Codex 配置里启用一个供应商后重新扫描。");
-      return;
-    }
     setActionBusy(true);
     setError("");
     try {
       const next = await invoke<AppState>("start_guard", { mode });
       setState(next);
-      notify(`监控已启动 · ${next.runtime.provider_name || activeUpstream.name}`);
+      notify(`监控已启动 · ${next.runtime.provider_name || "本机会话"}`);
     } catch (err) {
       fail(err);
     } finally {
@@ -362,6 +416,12 @@ export function App() {
 
   const running = state.runtime.running;
   const primaryActionLabel = running ? "停止 Codex 监控" : "启动 Codex 监控";
+  const autostartDisabled = !state.app.bundle_managed && !settings.autostart;
+  const autostartHint = state.app.bundle_managed
+    ? "开机时自动启动 Codex 保安"
+    : settings.autostart
+      ? "当前启动项来自非安装版，可关闭以避免残留"
+      : "仅安装版可开启，避免开发/便携版留下启动项";
 
   return (
     <main className="app">
@@ -445,6 +505,128 @@ export function App() {
           <Kpi tone={stats.risks ? "danger" : "calm"} icon={<ShieldAlert size={17} />} label="风险命中" value={loading ? "—" : stats.risks} detail="点击查看高危记录" active={activityFilter === "risk"} onClick={() => { setActivityFilter("risk"); setSearch(""); }} />
         </section>
 
+        <section className="probe" aria-label="模型体检">
+          <div className="probe__head">
+            <div className="probe__headText">
+              <h2><Fingerprint size={16} /> 模型体检</h2>
+              <p>向当前上游发一次探测，读它自报的真实模型，识别「请求 A 却被路由/替换成 B」的掺水。上游若把 model 字段改干净则读不出（方法固有边界）。</p>
+            </div>
+            <button className="btn btn--primary btn--sm" disabled={probing || loading} aria-label="检测模型" onClick={runProbe}>
+              {probing ? <Loader2 size={14} className="spin" /> : <Fingerprint size={14} />}
+              {probing ? "检测中…" : "检测模型"}
+            </button>
+          </div>
+          {probeResult && (
+            <div className={["probeResult", `probeResult--${probeResult.verdict}`].join(" ")}>
+              {(probeResult.verdict === "mismatch" || probeResult.conflict) && probeResult.reported_model && (
+                <div className="probeResult__alert">
+                  <AlertTriangle size={15} />
+                  <span>响应模型：<strong>{probeResult.reported_model}</strong></span>
+                </div>
+              )}
+              <div className="probeResult__rows">
+                <div className="probeResult__row"><span>请求模型</span><code>{probeResult.requested_model}</code></div>
+                <div className="probeResult__row"><span>上游请求模型</span><code>{probeResult.requested_model}</code></div>
+                <div className="probeResult__row">
+                  <span>响应模型</span>
+                  <code className={probeResult.verdict === "mismatch" ? "is-danger" : ""}>{probeResult.reported_model ?? "—"}</code>
+                </div>
+              </div>
+              <div className="probeResult__flow">
+                <span className={["probeBadge", `probeBadge--${probeResult.verdict}`].join(" ")}>{verdictLabel(probeResult.verdict)}</span>
+                <span className="probeResult__endpoint" title="探测端点（已脱敏）">{probeResult.endpoint}</span>
+                {probeResult.http_status != null && <span className="probeResult__endpoint">HTTP {probeResult.http_status}</span>}
+                {probeResult.observed.length > 1 && <span className="probeResult__endpoint">自报: {probeResult.observed.join(" / ")}</span>}
+              </div>
+              <p className="probeResult__detail">{probeResult.detail}</p>
+            </div>
+          )}
+        </section>
+
+        <section className="audit" aria-label="模型审计日报">
+          <div className="audit__head">
+            <div className="audit__headText">
+              <h2><Layers size={16} /> 模型审计日报</h2>
+              <p>读一天的日志：总请求、异常请求（路由/替换、Token 矛盾、无效模型、疑似降智），以及异常请求实际是什么模型。按北京时间。</p>
+            </div>
+            <div className="audit__controls">
+              <input type="date" className="audit__date" value={reportDate} max={todayShanghai()} aria-label="选择日期" onChange={(e) => setReportDate(e.target.value)} />
+              <button className="btn btn--soft btn--sm" disabled={reportLoading} aria-label="刷新日报" onClick={() => loadReport(reportDate)}>
+                {reportLoading ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />}
+                刷新
+              </button>
+            </div>
+          </div>
+          {report && (
+            <div className="audit__body">
+              <div className="audit__tiles">
+                <div className="auditTile"><span className="auditTile__label">分析请求</span><strong>{report.analyzed_requests.toLocaleString("zh-CN")}</strong><span className="auditTile__foot">HTTP 异常 {report.errors}</span></div>
+                <div className="auditTile auditTile--alert"><span className="auditTile__label">异常请求</span><strong>{report.anomaly_total.toLocaleString("zh-CN")}</strong><span className="auditTile__foot">命中任一异常规则</span></div>
+                <div className="auditTile auditTile--ok"><span className="auditTile__label">正常请求</span><strong>{report.clean_requests.toLocaleString("zh-CN")}</strong><span className="auditTile__foot">未命中异常</span></div>
+              </div>
+              <div className="audit__cats">
+                {report.anomalies.map((cat) => (
+                  <div key={cat.key} className={["auditCat", cat.count ? "is-hit" : ""].join(" ")}>
+                    <span className="auditCat__count">{cat.count.toLocaleString("zh-CN")}</span>
+                    <span className="auditCat__label">{cat.label}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="audit__subhead"><ShieldAlert size={14} /> 异常请求实际是什么模型<span className="audit__hint">重中之重 · 每行标注证据级别</span></div>
+              <div className="auditTableWrap">
+                <table className="auditTable">
+                  <thead><tr><th>请求模型</th><th>实际模型 · 家族或自报</th><th>证据级别</th><th className="num">次数</th></tr></thead>
+                  <tbody>
+                    {report.actual_model_breakdown.map((row, i) => (
+                      <tr key={i}>
+                        <td><code>{row.requested_model}</code></td>
+                        <td><code className={row.evidence_level !== "undetermined" ? "is-danger" : ""}>{row.actual_model}</code></td>
+                        <td><span className={["evTag", `evTag--${row.evidence_level}`].join(" ")}>{EVIDENCE_LABEL[row.evidence_level]}</span></td>
+                        <td className="num">{row.count.toLocaleString("zh-CN")}</td>
+                      </tr>
+                    ))}
+                    {!report.actual_model_breakdown.length && (
+                      <tr><td className="auditEmpty" colSpan={4}>当日没有检测到异常请求。</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              {report.rows.length > 0 && (
+                <details className="auditDetails">
+                  <summary>展开异常请求明细（{report.rows.length} 条）</summary>
+                  <div className="auditTableWrap">
+                    <table className="auditTable">
+                      <thead><tr><th>时间</th><th>来源</th><th>供应商</th><th>请求</th><th>实际</th><th className="num">输入</th><th className="num">输出</th><th>类型</th></tr></thead>
+                      <tbody>
+                        {report.rows.map((row) => (
+                          <tr key={row.id}>
+                            <td>{row.time}</td>
+                            <td>{row.source === "ccswitch" ? "CC Switch" : "Codex"}</td>
+                            <td>{row.provider}</td>
+                            <td><code>{row.requested_model}</code></td>
+                            <td><code className={row.evidence_level !== "undetermined" ? "is-danger" : ""}>{row.actual_model}</code></td>
+                            <td className="num">{row.input_tokens ?? "—"}</td>
+                            <td className="num">{row.output_tokens ?? "—"}</td>
+                            <td>{row.categories.join("、")}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </details>
+              )}
+              <div className="audit__sources">
+                {report.sources.map((src) => (
+                  <span key={src.id} className={["auditSource", src.available ? "" : "is-off"].join(" ")}>{src.label}：{src.available ? `${src.records} 条` : "不可用"}</span>
+                ))}
+              </div>
+              <ul className="audit__limits">
+                {report.limitations.map((line, i) => <li key={i}>{line}</li>)}
+              </ul>
+            </div>
+          )}
+        </section>
+
         <section className="feed">
           <div className="feed__head">
             <div className="feed__headText">
@@ -503,7 +685,7 @@ export function App() {
               <span className="railLabel">运行设置</span>
               <div className="settingGroup">
                 <Toggle checked={settings.background_run} onChange={(v) => updateSetting({ background_run: v })} icon={<Minimize2 size={16} />} label="后台运行" hint="关闭窗口时最小化到托盘，监控继续运行" />
-                <Toggle checked={settings.autostart} onChange={(v) => updateSetting({ autostart: v })} icon={<Power size={16} />} label="开机自启动" hint="开机时自动启动 Codex 保安" />
+                <Toggle checked={settings.autostart} onChange={(v) => updateSetting({ autostart: v })} icon={<Power size={16} />} label="开机自启动" hint={autostartHint} disabled={autostartDisabled} />
                 <Toggle checked={settings.silent_start} onChange={(v) => updateSetting({ silent_start: v })} icon={<EyeOff size={16} />} label="开机静默启动" hint="开机自启时不弹窗，直接在后台监控（需先开启自启）" />
               </div>
             </div>
@@ -575,7 +757,7 @@ export function App() {
               </span>
             </button>
 
-            <p className="drawer__note">监控读取本机 Codex 会话日志（~/.codex/sessions）来还原执行记录，仅在本地处理，不上传任何数据。</p>
+            <p className="drawer__note">{state.app.sessions_dir}</p>
           </aside>
         </>
       )}
@@ -620,7 +802,7 @@ function UpstreamBar({
         </span>
         <div className="upstreamBar__info">
           <small>未检测到上游</small>
-          <strong>请先启用一个 Codex 供应商</strong>
+          <strong>{running ? "本机会话审计运行中" : "本机会话审计未启动"}</strong>
           <p className="upstreamBar__hint">{fallback}</p>
         </div>
       </div>
@@ -647,13 +829,13 @@ function UpstreamBar({
           <span className="sep" aria-hidden="true" />
           <span>{upstream.model || upstream.protocol || "Codex"}</span>
           <span className="sep" aria-hidden="true" />
-          <span>{upstream.has_api_key ? upstream.masked_api_key || "已配置 Key" : "登录态"}</span>
+          <span title={upstream.notes.join("\n")}>{upstream.has_api_key ? upstream.masked_api_key || "已配置 Key" : upstream.status_text}</span>
         </div>
         {!!sources.length && (
           <div className="upstreamBar__sources">
             <span className="srcLabel">配置来源</span>
-            {sources.map((source) => (
-              <span key={source.id} className="srcChip" title={source.path}>
+            {sources.filter((source) => source.exists).map((source) => (
+              <span key={source.id} className="srcChip" title={source.status === "error" ? source.message : source.path}>
                 <SourceLogo source={source.id} size={14} />
                 {source.label}
               </span>
@@ -678,9 +860,9 @@ function Kpi({ tone, icon, label, value, detail, active, onClick }: { tone: KpiT
   );
 }
 
-function Toggle({ checked, onChange, icon, label, hint }: { checked: boolean; onChange: (value: boolean) => void; icon: React.ReactNode; label: string; hint: string }) {
+function Toggle({ checked, onChange, icon, label, hint, disabled = false }: { checked: boolean; onChange: (value: boolean) => void; icon: React.ReactNode; label: string; hint: string; disabled?: boolean }) {
   return (
-    <button className={["settingRow", checked ? "is-on" : ""].join(" ")} role="switch" aria-checked={checked} onClick={() => onChange(!checked)}>
+    <button className={["settingRow", checked ? "is-on" : "", disabled ? "is-disabled" : ""].join(" ")} role="switch" aria-checked={checked} onClick={() => onChange(!checked)} disabled={disabled}>
       <span className="settingRow__icon" aria-hidden="true">{icon}</span>
       <span className="settingRow__text">
         <strong>{label}</strong>
@@ -723,6 +905,7 @@ function ActivityTimeline({ events, loading, filtered }: { events: ActivityEvent
             <div className="event__title">
               <h3>{event.title}</h3>
               <span className={["sev", `sev--${severityTone(event.severity)}`].join(" ")}>{severityLabel(event.severity)}</span>
+              {event.source && <small className="event__source">{event.source}</small>}
               <time dateTime={event.timestamp}>{formatTime(event.timestamp)}</time>
             </div>
             <p>{event.summary}</p>
@@ -743,7 +926,7 @@ function ActivityTimeline({ events, loading, filtered }: { events: ActivityEvent
 }
 
 function providerStatus(status: string) {
-  return ({ ready: "可用", "needs-auth": "登录态", unconfigured: "未配置" } as Record<string, string>)[status] || status;
+  return ({ ready: "已配置", "needs-auth": "缺少凭据", "auth-unverified": "认证待确认", unconfigured: "未配置" } as Record<string, string>)[status] || status;
 }
 
 function isRisk(event: ActivityEvent) {

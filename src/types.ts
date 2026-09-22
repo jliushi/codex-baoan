@@ -1,5 +1,5 @@
 export type SourceStatus = "ok" | "missing" | "error";
-export type ProviderStatus = "ready" | "needs-auth" | "unconfigured";
+export type ProviderStatus = "ready" | "needs-auth" | "auth-unverified" | "unconfigured";
 export type GuardMode = "audit" | "block";
 export type Severity = "info" | "low" | "medium" | "high" | "critical";
 export type KnownProviderSource = "ccswitch" | "codexplusplus" | "codex-config";
@@ -71,6 +71,7 @@ export interface ActivityEvent {
 export interface AppInfo {
   version: string;
   install_dir: string;
+  sessions_dir: string;
   bundle_managed: boolean;
   updater_configured: boolean;
   portable_mode: boolean;
@@ -88,4 +89,71 @@ export interface InspectDecision {
   action: "allow" | "block";
   message: string;
   matched_paths: string[];
+}
+
+export type EvidenceLevel = "tokenizer_fingerprint" | "self_reported" | "undetermined";
+
+export interface AuditSourceInfo {
+  id: string;
+  label: string;
+  path: string;
+  available: boolean;
+  records: number;
+}
+
+export interface AuditAnomalyCategory {
+  key: string;
+  label: string;
+  count: number;
+}
+
+export interface AuditBreakdownRow {
+  requested_model: string;
+  actual_model: string;
+  evidence_level: EvidenceLevel;
+  count: number;
+}
+
+export interface AuditReportRow {
+  id: string;
+  time: string;
+  source: string;
+  provider: string;
+  requested_model: string;
+  actual_model: string;
+  evidence_level: EvidenceLevel;
+  input_tokens?: number;
+  output_tokens?: number;
+  reasoning_tokens?: number;
+  status_code?: number;
+  categories: string[];
+}
+
+export interface DailyAudit {
+  date: string;
+  generated_at: string;
+  sources: AuditSourceInfo[];
+  total_requests: number;
+  analyzed_requests: number;
+  errors: number;
+  anomaly_total: number;
+  clean_requests: number;
+  anomalies: AuditAnomalyCategory[];
+  actual_model_breakdown: AuditBreakdownRow[];
+  tokens: { input: number; output: number; total: number };
+  rows: AuditReportRow[];
+  limitations: string[];
+}
+
+export type RoutingVerdict = "match" | "mismatch" | "unknown" | "error";
+
+export interface ModelRoutingResult {
+  requested_model: string;
+  reported_model?: string;
+  verdict: RoutingVerdict;
+  conflict: boolean;
+  observed: string[];
+  endpoint: string;
+  http_status?: number;
+  detail: string;
 }

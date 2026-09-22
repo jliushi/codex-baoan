@@ -68,6 +68,6 @@ MSI 是推荐安装包，也是应用内更新使用的包。Portable 便携版�
 
 ## 常见问题
 
-- 检查更新失败：确认 Release 资产里存在 `latest.json`，并且 URL 为 `https://github.com/jiangliushi666/codex-baoan/releases/latest/download/latest.json`。
+- 检查更新失败：确认 Release 资产里存在 `latest.json`，并且 URL 为 `https://github.com/jliushi/codex-baoan/releases/latest/download/latest.json`。
 - 安装更新失败：确认 `.msi.sig` 已上传，且私钥与 `tauri.conf.json` 的公钥匹配。
 - 开机自启失败：应用会直接在设置页报错，不会静默吞掉失败；优先检查 Windows 安全软件或注册表写入限制。
