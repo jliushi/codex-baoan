@@ -74,3 +74,44 @@ func TestFingerprintInsufficient(t *testing.T) {
 		t.Fatalf("期望 insufficient，得到 %s", v.Family)
 	}
 }
+
+// Honest snapshot resolution (alias -> dated snapshot) must not count as a routing
+// substitution. Regression for the false positive on normal OpenAI traffic.
+func TestSnapshotNotSubstitution(t *testing.T) {
+	samples := []Sample{
+		{RequestedModel: "gpt-5", ReportedModel: "gpt-5-2025-08-01", InputTokens: 100, OutputTokens: 10},
+		{RequestedModel: "gpt-4o", ReportedModel: "gpt-4o-2024-08-06", InputTokens: 100, OutputTokens: 10},
+	}
+	if got := buildReport(samples, "2026-09-22").RoutingSubstitutions; got != 0 {
+		t.Fatalf("快照解析被误判为路由替换：得到 %d，期望 0", got)
+	}
+	// A genuine cross-family substitution must still be flagged.
+	real := []Sample{{RequestedModel: "gpt-5", ReportedModel: "qwen-2.5-72b", InputTokens: 100, OutputTokens: 10}}
+	if got := buildReport(real, "2026-09-22").RoutingSubstitutions; got != 1 {
+		t.Fatalf("真实替换漏报：得到 %d，期望 1", got)
+	}
+}
+
+// A non-stream JSON response whose text contains "data:" must still yield model+usage.
+func TestParseUsageJSONWithDataURI(t *testing.T) {
+	body := `{"model":"gpt-5","usage":{"input_tokens":321,"output_tokens":12},` +
+		`"output":[{"content":[{"type":"output_text","text":"see data:image/png;base64,AAAA"}]}]}`
+	model, in, out, _ := parseUsage([]byte(body))
+	if model != "gpt-5" || in != 321 || out != 12 {
+		t.Fatalf("含 data: 的非流式响应解析错误：model=%q in=%d out=%d", model, in, out)
+	}
+}
+
+// Tool-call arguments and tool output are billed upstream and must be reconstructed.
+func TestCountableTextIncludesToolItems(t *testing.T) {
+	payload := map[string]any{
+		"input": []any{
+			map[string]any{"type": "function_call", "name": "run", "arguments": `{"cmd":"pytest -q"}`},
+			map[string]any{"type": "function_call_output", "call_id": "c1", "output": "PASSED 42 tests in 3.1s"},
+		},
+	}
+	text := countableText(payload)
+	if !strings.Contains(text, "pytest -q") || !strings.Contains(text, "PASSED 42 tests") {
+		t.Fatalf("工具调用/输出文本未纳入重建：%q", text)
+	}
+}

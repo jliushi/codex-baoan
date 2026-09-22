@@ -160,18 +160,20 @@ func textOfField(field any) []string {
 }
 
 func textOfItem(item any) string {
+	if s, ok := item.(string); ok {
+		return s
+	}
 	m, ok := item.(map[string]any)
 	if !ok {
-		if s, ok := item.(string); ok {
-			return s
-		}
 		return ""
 	}
+	var parts []string
 	switch content := m["content"].(type) {
 	case string:
-		return content
+		if content != "" {
+			parts = append(parts, content)
+		}
 	case []any:
-		var parts []string
 		for _, piece := range content {
 			if pm, ok := piece.(map[string]any); ok {
 				for _, key := range []string{"text", "input_text", "output_text"} {
@@ -184,14 +186,31 @@ func textOfItem(item any) string {
 				parts = append(parts, s)
 			}
 		}
-		return strings.Join(parts, "\n")
 	}
+	// Some item shapes carry text directly rather than under content.
 	for _, key := range []string{"text", "input_text"} {
-		if s, ok := m[key].(string); ok {
-			return s
+		if s, ok := m[key].(string); ok && s != "" {
+			parts = append(parts, s)
 		}
 	}
-	return ""
+	// Tool calls (function_call.arguments) and tool results (function_call_output.output)
+	// carry real text the upstream tokenizes and bills into input_tokens; omitting them
+	// undercounts the reconstructed prompt and inflates the fingerprint slope (false
+	// "non-GPT"). output may be a string or a structured block.
+	if s, ok := m["arguments"].(string); ok && s != "" {
+		parts = append(parts, s)
+	}
+	switch out := m["output"].(type) {
+	case string:
+		if out != "" {
+			parts = append(parts, out)
+		}
+	case []any, map[string]any:
+		if b, err := json.Marshal(out); err == nil {
+			parts = append(parts, string(b))
+		}
+	}
+	return strings.Join(parts, "\n")
 }
 
 func nonEmpty(in []string) []string {
@@ -228,28 +247,29 @@ func parseUsage(body []byte) (model string, input, output, reasoning int64) {
 			reasoning = firstInt(details, "reasoning_tokens", "", reasoning)
 		}
 	}
-	text := string(body)
-	if strings.Contains(text, "data:") {
-		for _, line := range strings.Split(text, "\n") {
-			line = strings.TrimSpace(line)
-			data, ok := strings.CutPrefix(line, "data:")
-			if !ok {
-				continue
-			}
-			data = strings.TrimSpace(data)
-			if data == "" || data == "[DONE]" {
-				continue
-			}
-			var obj map[string]any
-			if json.Unmarshal([]byte(data), &obj) == nil {
-				assign(obj)
-			}
-		}
-		return
-	}
+	// A non-stream response is a single JSON object; try that first so a body whose
+	// text merely contains "data:" (e.g. a data: URI) isn't misparsed as an SSE stream.
 	var obj map[string]any
 	if json.Unmarshal(body, &obj) == nil {
 		assign(obj)
+		return
+	}
+	// Otherwise it's an SSE stream: each `data:` line is a JSON event; the terminal
+	// response.completed carries the final self-reported model and usage.
+	for _, line := range strings.Split(string(body), "\n") {
+		line = strings.TrimSpace(line)
+		data, ok := strings.CutPrefix(line, "data:")
+		if !ok {
+			continue
+		}
+		data = strings.TrimSpace(data)
+		if data == "" || data == "[DONE]" {
+			continue
+		}
+		var ev map[string]any
+		if json.Unmarshal([]byte(data), &ev) == nil {
+			assign(ev)
+		}
 	}
 	return
 }

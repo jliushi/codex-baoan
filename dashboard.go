@@ -6,6 +6,7 @@ import (
 	"math"
 	"net/http"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -161,7 +162,8 @@ func buildReport(samples []Sample, date string) Report {
 	breakdown := map[[3]string]int{}
 
 	for _, s := range samples {
-		if s.RequestedModel != "" && s.ReportedModel != "" && s.RequestedModel != s.ReportedModel {
+		if s.RequestedModel != "" && s.ReportedModel != "" &&
+			s.RequestedModel != s.ReportedModel && !isSnapshotOf(s.RequestedModel, s.ReportedModel) {
 			report.RoutingSubstitutions++
 			breakdown[[3]string{s.RequestedModel, s.ReportedModel, "self_reported"}]++
 		}
@@ -281,6 +283,14 @@ func regress(xs, ys []float64) (float64, float64, float64, bool) {
 func round(f float64, places int) float64 {
 	p := math.Pow(10, float64(places))
 	return math.Round(f*p) / p
+}
+
+// isSnapshotOf reports whether reported is an honest, more-specific resolution of the
+// requested model rather than a substitution — e.g. request "gpt-5" self-reported as
+// "gpt-5-2025-08-01", or the reverse. Providers routinely echo the dated snapshot they
+// resolved an alias to; treating that as a routing substitution is a false positive.
+func isSnapshotOf(requested, reported string) bool {
+	return strings.HasPrefix(reported, requested+"-") || strings.HasPrefix(requested, reported+"-")
 }
 
 func (d *dashboard) indexHandler(w http.ResponseWriter, r *http.Request) {
