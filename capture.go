@@ -41,6 +41,10 @@ func countTokens(enc *tiktoken.Tiktoken, text string) int {
 	return len(enc.Encode(text, nil, nil))
 }
 
+// encodersReady reports whether both tokenizers loaded. When false the fingerprint
+// feature silently produces nothing, so the dashboard surfaces it instead.
+func encodersReady() bool { return encO2 != nil && encCl != nil }
+
 // pending carries request-side data from the OnRequest hook to the OnResponse hook.
 type pending struct {
 	host           string

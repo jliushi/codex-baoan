@@ -36,9 +36,27 @@ func saveConfig(c guardConfig) {
 //   - else the persisted config
 //   - else CC Switch's current global proxy (if it isn't already us)
 //   - else empty (direct)
+//
+// The result is always sanitized so the guard never chains to itself (which would be
+// an infinite proxy loop) — e.g. when it restarts while CC Switch is still attached and
+// the persisted config was lost.
 func resolveUpstream(flagVal, guardURL string) string {
+	return sanitizeUpstream(pickUpstream(flagVal, guardURL), guardURL)
+}
+
+// sanitizeUpstream drops a self-referential upstream, falling back to direct.
+func sanitizeUpstream(u, guardURL string) string {
+	if u == guardURL {
+		return ""
+	}
+	return u
+}
+
+func pickUpstream(flagVal, guardURL string) string {
 	if flagVal != "" && flagVal != "auto" {
-		saveConfig(guardConfig{Upstream: flagVal})
+		if flagVal != guardURL {
+			saveConfig(guardConfig{Upstream: flagVal})
+		}
 		return flagVal
 	}
 	cfg := loadConfig()

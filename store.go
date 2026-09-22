@@ -32,6 +32,19 @@ type Store struct {
 	lastSeen time.Time
 }
 
+// maxSamples bounds the in-memory sample slice so a long-running guard doesn't grow
+// without limit (the on-disk jsonl stays append-only). Kept high enough that browsing
+// recent days is unaffected; only the oldest samples are dropped once exceeded. Var,
+// not const, so tests can shrink it.
+var maxSamples = 200000
+
+// trimLocked drops the oldest samples once the slice exceeds maxSamples. Caller holds mu.
+func (s *Store) trimLocked() {
+	if len(s.samples) > maxSamples {
+		s.samples = append(s.samples[:0], s.samples[len(s.samples)-maxSamples:]...)
+	}
+}
+
 func (s *Store) LastSeen() time.Time {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -64,12 +77,14 @@ func (s *Store) load() error {
 			s.samples = append(s.samples, sample)
 		}
 	}
+	s.trimLocked()
 	return sc.Err()
 }
 
 func (s *Store) add(sample Sample) {
 	s.mu.Lock()
 	s.samples = append(s.samples, sample)
+	s.trimLocked()
 	s.lastSeen = time.Now()
 	s.mu.Unlock()
 	// Append-only persistence; best effort.

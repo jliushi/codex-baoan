@@ -2,6 +2,7 @@ package main
 
 import (
 	"math/rand"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -113,5 +114,44 @@ func TestCountableTextIncludesToolItems(t *testing.T) {
 	text := countableText(payload)
 	if !strings.Contains(text, "pytest -q") || !strings.Contains(text, "PASSED 42 tests") {
 		t.Fatalf("工具调用/输出文本未纳入重建：%q", text)
+	}
+}
+
+// The guard must never chain its upstream to itself (infinite proxy loop).
+func TestSanitizeUpstreamNoSelfLoop(t *testing.T) {
+	guard := "http://127.0.0.1:8899"
+	if got := sanitizeUpstream(guard, guard); got != "" {
+		t.Fatalf("自指上游未被清除：%q", got)
+	}
+	if got := sanitizeUpstream("http://127.0.0.1:7890", guard); got != "http://127.0.0.1:7890" {
+		t.Fatalf("正常上游被误清：%q", got)
+	}
+}
+
+// In-memory samples are capped so a long-running guard doesn't grow without limit.
+func TestStoreTrimsToMaxSamples(t *testing.T) {
+	old := maxSamples
+	maxSamples = 10
+	defer func() { maxSamples = old }()
+	s := &Store{path: filepath.Join(t.TempDir(), "samples.jsonl")}
+	for i := 0; i < 25; i++ {
+		s.add(Sample{RequestedModel: "m", InputTokens: int64(i)})
+	}
+	if len(s.samples) != 10 {
+		t.Fatalf("样本未按上限裁剪：len=%d，期望 10", len(s.samples))
+	}
+	if s.samples[len(s.samples)-1].InputTokens != 24 {
+		t.Fatalf("裁剪丢了最新样本：末条 InputTokens=%d，期望 24", s.samples[len(s.samples)-1].InputTokens)
+	}
+}
+
+// When tokenizers fail to load, the report must say so instead of silently producing nothing.
+func TestReportSurfacesEncoderFailure(t *testing.T) {
+	o2, cl := encO2, encCl
+	encO2, encCl = nil, nil
+	defer func() { encO2, encCl = o2, cl }()
+	rep := buildReport(nil, "2026-09-22")
+	if len(rep.Limitations) == 0 || !strings.Contains(rep.Limitations[0], "分词器未成功加载") {
+		t.Fatalf("编码器失败未在报告中提示：%v", rep.Limitations)
 	}
 }

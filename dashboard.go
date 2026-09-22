@@ -72,12 +72,13 @@ func (d *dashboard) guardURL() string { return fmt.Sprintf("http://127.0.0.1:%d"
 func (d *dashboard) statusHandler(w http.ResponseWriter, r *http.Request) {
 	certPath, _, _ := caFiles()
 	writeJSON(w, map[string]any{
-		"cert_trusted": caTrusted(),
-		"cert_exists":  fileExists(certPath),
-		"proxy_port":   d.proxyPort,
-		"upstream":     d.upstream,
-		"proxy_url":    d.guardURL(),
-		"routing":      computeAttachState(d.guardURL(), d.store.LastSeen()),
+		"cert_trusted":      caTrusted(),
+		"cert_exists":       fileExists(certPath),
+		"proxy_port":        d.proxyPort,
+		"upstream":          d.upstream,
+		"proxy_url":         d.guardURL(),
+		"fingerprint_ready": encodersReady(),
+		"routing":           computeAttachState(d.guardURL(), d.store.LastSeen()),
 	})
 }
 
@@ -208,6 +209,11 @@ func buildReport(samples []Sample, date string) Report {
 		})
 	}
 	sort.Slice(report.ActualModels, func(i, j int) bool { return report.ActualModels[i].Count > report.ActualModels[j].Count })
+	if !encodersReady() {
+		report.Limitations = append([]string{
+			"⚠ 分词器未成功加载，本次无法做指纹判定（仅路由/自报名可用）。请重装或反馈。",
+		}, report.Limitations...)
+	}
 	return report
 }
 
