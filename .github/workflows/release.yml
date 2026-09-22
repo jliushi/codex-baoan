@@ -44,6 +44,11 @@ jobs:
       - name: Rust format check
         run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
 
+      # tauri::generate_context! validates frontendDist at compile time, so the
+      # renderer bundle must exist before cargo test compiles the lib.
+      - name: Build renderer
+        run: corepack pnpm run build:renderer
+
       - name: Rust tests
         run: cargo test --manifest-path src-tauri/Cargo.toml
 
