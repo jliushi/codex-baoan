@@ -139,6 +139,11 @@ $("refresh").onclick=()=>{status();load();};$("date").onchange=load;
 function applyTheme(t){document.body.dataset.theme=t;localStorage.setItem("theme",t);}
 $("theme").onclick=()=>applyTheme(document.body.dataset.theme==="dark"?"light":"dark");
 applyTheme(localStorage.getItem("theme")||"light");
-status();load();setInterval(()=>{status();load();},10000);
+status();load();
+// 事件驱动：有新请求被观察到才刷新，不做固定轮询（省资源）。
+try{const es=new EventSource("/api/events");es.onmessage=()=>{if(!document.hidden)load();};}catch(e){}
+document.addEventListener("visibilitychange",()=>{if(!document.hidden){status();load();}});
+// 证书/接入状态变化很少：仅在可见时每 30 秒轻量刷新一次。
+setInterval(()=>{if(!document.hidden)status();},30000);
 </script>
 </body></html>`

@@ -30,6 +30,34 @@ type Store struct {
 	samples  []Sample
 	path     string
 	lastSeen time.Time
+	subs     map[chan struct{}]struct{}
+}
+
+// subscribe returns a channel signalled on each new sample, plus an unsubscribe func.
+// Powers the dashboard's SSE endpoint so the UI updates on real events, not by polling.
+func (s *Store) subscribe() (chan struct{}, func()) {
+	ch := make(chan struct{}, 1)
+	s.mu.Lock()
+	if s.subs == nil {
+		s.subs = map[chan struct{}]struct{}{}
+	}
+	s.subs[ch] = struct{}{}
+	s.mu.Unlock()
+	return ch, func() {
+		s.mu.Lock()
+		delete(s.subs, ch)
+		s.mu.Unlock()
+	}
+}
+
+// notifyLocked signals all subscribers (coalescing). Caller holds mu.
+func (s *Store) notifyLocked() {
+	for ch := range s.subs {
+		select {
+		case ch <- struct{}{}:
+		default:
+		}
+	}
 }
 
 // maxSamples bounds the in-memory sample slice so a long-running guard doesn't grow
@@ -86,6 +114,7 @@ func (s *Store) add(sample Sample) {
 	s.samples = append(s.samples, sample)
 	s.trimLocked()
 	s.lastSeen = time.Now()
+	s.notifyLocked()
 	s.mu.Unlock()
 	// Append-only persistence; best effort.
 	if f, err := os.OpenFile(s.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600); err == nil {

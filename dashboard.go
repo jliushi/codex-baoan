@@ -63,8 +63,40 @@ func newDashboard(store *Store, proxyPort int, upstream string) http.Handler {
 	mux.HandleFunc("/api/cert/uninstall", d.certUninstallHandler)
 	mux.HandleFunc("/api/attach", d.attachHandler)
 	mux.HandleFunc("/api/detach", d.detachHandler)
+	mux.HandleFunc("/api/events", d.eventsHandler)
 	mux.HandleFunc("/", d.indexHandler)
 	return mux
+}
+
+// eventsHandler streams Server-Sent Events: one message per new captured sample, plus
+// a periodic heartbeat. Lets the UI refresh on real events instead of polling.
+func (d *dashboard) eventsHandler(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	ch, cancel := d.store.subscribe()
+	defer cancel()
+	fmt.Fprint(w, "retry: 3000\n\n")
+	flusher.Flush()
+	heartbeat := time.NewTicker(25 * time.Second)
+	defer heartbeat.Stop()
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-ch:
+			fmt.Fprint(w, "data: sample\n\n")
+			flusher.Flush()
+		case <-heartbeat.C:
+			fmt.Fprint(w, ": ping\n\n")
+			flusher.Flush()
+		}
+	}
 }
 
 func (d *dashboard) guardURL() string { return fmt.Sprintf("http://127.0.0.1:%d", d.proxyPort) }
