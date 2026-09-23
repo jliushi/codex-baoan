@@ -9,7 +9,10 @@ import (
 // guardConfig persists the real upstream (what CC Switch used before we attached),
 // so the guard keeps chaining the real fetch through it (e.g. the user's Clash :7890).
 type guardConfig struct {
-	Upstream string `json:"upstream"`
+	Upstream      string `json:"upstream"`
+	OriginalProxy string `json:"original_proxy,omitempty"`
+	Attached      bool   `json:"attached,omitempty"`
+	OwnerPID      int    `json:"owner_pid,omitempty"`
 }
 
 func configPath() string {
@@ -29,6 +32,33 @@ func saveConfig(c guardConfig) {
 	if b, err := json.MarshalIndent(c, "", "  "); err == nil {
 		os.WriteFile(configPath(), b, 0o600)
 	}
+}
+
+// markAttached records the exact CC Switch value that must be restored when this
+// guard session ends. The PID prevents a later guard process from detaching a
+// session it did not create.
+func markAttached(guardURL, previous string) {
+	c := loadConfig()
+	if previous == guardURL {
+		previous = c.OriginalProxy
+		if previous == "" {
+			previous = c.Upstream
+		}
+	}
+	if previous != guardURL {
+		c.OriginalProxy = previous
+	}
+	c.Attached = true
+	c.OwnerPID = os.Getpid()
+	saveConfig(c)
+}
+
+func clearAttachment() {
+	c := loadConfig()
+	c.Attached = false
+	c.OwnerPID = 0
+	c.OriginalProxy = ""
+	saveConfig(c)
 }
 
 // resolveUpstream decides the guard's real upstream at startup:

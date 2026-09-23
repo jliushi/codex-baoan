@@ -21,8 +21,10 @@ func launchGUI(dashPort int) {
 	})
 	if w == nil {
 		fmt.Println("无法创建窗口：缺少 WebView2 运行时。请安装 Microsoft Edge WebView2 Runtime。")
-		fmt.Printf("你仍可用浏览器打开看板：http://127.0.0.1:%d\n", dashPort)
-		select {} // keep the engine running headless
+		fmt.Printf("看板地址：http://127.0.0.1:%d\n", dashPort)
+		// Do not leave CC Switch pointing at a process with no visible way to
+		// close it. main's deferred cleanup restores a previous attachment.
+		return
 	}
 	defer w.Destroy()
 	w.Navigate(fmt.Sprintf("http://127.0.0.1:%d", dashPort))

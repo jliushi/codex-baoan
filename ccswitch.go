@@ -3,8 +3,11 @@ package main
 import (
 	"database/sql"
 	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -107,4 +110,64 @@ func computeAttachState(guardURL string, lastSample time.Time) attachState {
 		st.LastSeenAgo = int64(time.Since(lastSample).Seconds())
 	}
 	return st
+}
+
+// guardListening reports whether the local proxy from a previous session is
+// still alive. A missing listener means the DB entry is stale and can be safely
+// recovered on the next launch.
+func guardListening(guardURL string) bool {
+	u, err := url.Parse(guardURL)
+	if err != nil || u.Hostname() == "" {
+		return false
+	}
+	port, err := strconv.Atoi(u.Port())
+	if err != nil {
+		return false
+	}
+	conn, err := net.DialTimeout("tcp", net.JoinHostPort(u.Hostname(), strconv.Itoa(port)), 150*time.Millisecond)
+	if err != nil {
+		return false
+	}
+	conn.Close()
+	return true
+}
+
+// recoverStaleAttachment repairs a CC Switch setting left behind by a crashed
+// guard process. It only runs when the previous guard listener is gone.
+func recoverStaleAttachment(guardURL string) error {
+	c := loadConfig()
+	if !c.Attached || c.OwnerPID == 0 {
+		return nil
+	}
+	current, err := ccGetGlobalProxy()
+	if err != nil || current != guardURL || guardListening(guardURL) {
+		return err
+	}
+	if err := ccSetGlobalProxy(c.OriginalProxy); err != nil {
+		return err
+	}
+	clearAttachment()
+	return nil
+}
+
+// detachOwnedAttachment restores the setting only when this process still owns
+// the attachment and CC Switch has not been changed by the user meanwhile.
+func detachOwnedAttachment(guardURL string) error {
+	c := loadConfig()
+	if !c.Attached || c.OwnerPID != os.Getpid() {
+		return nil
+	}
+	current, err := ccGetGlobalProxy()
+	if err != nil {
+		return err
+	}
+	if current != guardURL {
+		clearAttachment()
+		return nil
+	}
+	if err := ccSetGlobalProxy(c.OriginalProxy); err != nil {
+		return err
+	}
+	clearAttachment()
+	return nil
 }

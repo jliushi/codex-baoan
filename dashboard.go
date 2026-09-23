@@ -23,7 +23,7 @@ type GroupVerdict struct {
 	RequestedModel string   `json:"requested_model"`
 	ReportedModels []string `json:"reported_models"`
 	Samples        int      `json:"samples"`
-	Family         string   `json:"family"`         // o200k / cl100k / suspected_non_gpt / insufficient / ambiguous
+	Family         string   `json:"family"` // o200k / cl100k / suspected_non_gpt / insufficient / ambiguous
 	FamilyLabel    string   `json:"family_label"`
 	Slope          float64  `json:"slope"`
 	RMSE           float64  `json:"rmse"`
@@ -31,14 +31,14 @@ type GroupVerdict struct {
 }
 
 type Report struct {
-	Date               string         `json:"date"`
-	GeneratedAt        string         `json:"generated_at"`
-	TotalRequests      int            `json:"total_requests"`
-	RoutingSubstitutions int          `json:"routing_substitutions"`
-	TokenAnomalies     int            `json:"token_anomalies"`
-	Groups             []GroupVerdict `json:"groups"`
-	ActualModels       []ActualModel  `json:"actual_models"`
-	Limitations        []string       `json:"limitations"`
+	Date                 string         `json:"date"`
+	GeneratedAt          string         `json:"generated_at"`
+	TotalRequests        int            `json:"total_requests"`
+	RoutingSubstitutions int            `json:"routing_substitutions"`
+	TokenAnomalies       int            `json:"token_anomalies"`
+	Groups               []GroupVerdict `json:"groups"`
+	ActualModels         []ActualModel  `json:"actual_models"`
+	Limitations          []string       `json:"limitations"`
 }
 
 type ActualModel struct {
@@ -115,28 +115,41 @@ func (d *dashboard) statusHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // attachHandler points CC Switch's outbound proxy at this guard (writes its settings;
-// CC Switch applies it on next restart). Preserves the previous proxy as guard upstream.
+// CC Switch applies it on next restart). The previous value is recorded as a
+// session-owned attachment so closing the guard can restore it automatically.
 func (d *dashboard) attachHandler(w http.ResponseWriter, r *http.Request) {
-	prev, _ := ccGetGlobalProxy()
-	if prev != "" && prev != d.guardURL() {
-		saveConfig(guardConfig{Upstream: prev})
+	prev, err := ccGetGlobalProxy()
+	if err != nil {
+		writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	if prev != d.guardURL() {
+		c := loadConfig()
+		c.Upstream = prev
+		saveConfig(c)
 	}
 	if err := ccSetGlobalProxy(d.guardURL()); err != nil {
 		writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 		return
 	}
+	markAttached(d.guardURL(), prev)
 	writeJSON(w, map[string]any{"ok": true, "restart_required": true,
-		"message": "已把 CC Switch 出口代理指向本工具。请重启一次 CC Switch 生效。"})
+		"message": "已临时接入 CC Switch；关闭本工具会自动恢复原出口。请重启一次 CC Switch 生效。"})
 }
 
 func (d *dashboard) detachHandler(w http.ResponseWriter, r *http.Request) {
-	restore := loadConfig().Upstream
+	c := loadConfig()
+	restore := c.OriginalProxy
+	if restore == "" {
+		restore = c.Upstream
+	}
 	if err := ccSetGlobalProxy(restore); err != nil {
 		writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 		return
 	}
+	clearAttachment()
 	writeJSON(w, map[string]any{"ok": true, "restart_required": true,
-		"message": "已恢复 CC Switch 原出口设置。请重启一次 CC Switch 生效。"})
+		"message": "已恢复 CC Switch 原出口设置；请重启一次 CC Switch 生效。"})
 }
 
 func (d *dashboard) certInstallHandler(w http.ResponseWriter, r *http.Request) {
@@ -177,8 +190,8 @@ func (d *dashboard) reportHandler(w http.ResponseWriter, r *http.Request) {
 
 func buildReport(samples []Sample, date string) Report {
 	report := Report{
-		Date:        date,
-		GeneratedAt: time.Now().In(shanghai).Format(time.RFC3339),
+		Date:          date,
+		GeneratedAt:   time.Now().In(shanghai).Format(time.RFC3339),
 		TotalRequests: len(samples),
 		Limitations: []string{
 			"分词器指纹粒度到「家族」（GPT o200k / 老 GPT cl100k / 疑似非 GPT），不精确到快照；同族偷换看不出。",

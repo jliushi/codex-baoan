@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/signal"
 	"strings"
 
 	"github.com/elazarl/goproxy"
@@ -48,16 +49,47 @@ func main() {
 
 	switch cmd {
 	case "gui", "":
+		guardURL := fmt.Sprintf("http://127.0.0.1:%d", *proxyPort)
+		if err := recoverStaleAttachment(guardURL); err != nil {
+			log.Printf("恢复上次 CC Switch 接入失败：%v", err)
+		}
 		startEngine(*proxyPort, *dashPort, *upstream)
+		defer func() {
+			if err := detachOwnedAttachment(guardURL); err != nil {
+				log.Printf("关闭时恢复 CC Switch 出口失败：%v", err)
+			}
+		}()
 		launchGUI(*dashPort)
 	case "install":
 		mustInstallCA()
+		guardURL := fmt.Sprintf("http://127.0.0.1:%d", *proxyPort)
+		if err := recoverStaleAttachment(guardURL); err != nil {
+			log.Printf("恢复上次 CC Switch 接入失败：%v", err)
+		}
 		startEngine(*proxyPort, *dashPort, *upstream)
+		defer func() {
+			if err := detachOwnedAttachment(guardURL); err != nil {
+				log.Printf("关闭时恢复 CC Switch 出口失败：%v", err)
+			}
+		}()
 		launchGUI(*dashPort)
 	case "run":
+		guardURL := fmt.Sprintf("http://127.0.0.1:%d", *proxyPort)
+		if err := recoverStaleAttachment(guardURL); err != nil {
+			log.Printf("恢复上次 CC Switch 接入失败：%v", err)
+		}
 		startEngine(*proxyPort, *dashPort, *upstream)
-		select {} // headless: keep serving
+		sigs := make(chan os.Signal, 1)
+		signal.Notify(sigs, os.Interrupt)
+		<-sigs
+		if err := detachOwnedAttachment(guardURL); err != nil {
+			log.Printf("退出时恢复 CC Switch 出口失败：%v", err)
+		}
 	case "uninstall":
+		guardURL := fmt.Sprintf("http://127.0.0.1:%d", *proxyPort)
+		if err := recoverStaleAttachment(guardURL); err != nil {
+			log.Printf("恢复上次 CC Switch 接入失败：%v", err)
+		}
 		if err := uninstallCA(); err != nil {
 			log.Fatalf("卸载证书失败：%v", err)
 		}
