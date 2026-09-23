@@ -112,6 +112,8 @@ func startEngine(proxyPort, dashPort int, upstream string) {
 	proxy.OnRequest().HandleConnect(goproxy.AlwaysMitm)
 	installCapture(proxy, store)
 
+	go certTrustRefresher()
+
 	dash := newDashboard(store, proxyPort, realUpstream)
 	go func() {
 		addr := fmt.Sprintf("127.0.0.1:%d", dashPort)

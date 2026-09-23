@@ -7,11 +7,40 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"os/exec"
 	"strings"
+	"sync/atomic"
+	"time"
 )
 
 const caCommonName = "Codex 保安 Guard Local Root CA"
+
+// certTrustedCache avoids shelling out to certutil on every status poll (which would
+// otherwise flash a console window). Refreshed at startup, after install/uninstall,
+// and on a slow background ticker.
+var (
+	certTrustedCache atomic.Bool
+	certChecked      atomic.Bool
+)
+
+func caTrusted() bool {
+	if !certChecked.Load() {
+		refreshCertTrusted()
+	}
+	return certTrustedCache.Load()
+}
+
+func refreshCertTrusted() {
+	certTrustedCache.Store(caTrustedNow())
+	certChecked.Store(true)
+}
+
+// certTrustRefresher keeps the cached trust state fresh without user-visible windows.
+func certTrustRefresher() {
+	refreshCertTrusted()
+	for range time.Tick(60 * time.Second) {
+		refreshCertTrusted()
+	}
+}
 
 // mustInstallCA generates the CA if needed and trusts it in the current user's Root
 // store. No administrator elevation is required for the per-user store.
@@ -19,7 +48,7 @@ func mustInstallCA() {
 	if _, err := loadOrCreateCA(); err != nil {
 		log.Fatalf("生成本地 CA 失败：%v", err)
 	}
-	if caTrusted() {
+	if caTrustedNow() {
 		fmt.Println("本地根证书已在信任库中。")
 		return
 	}
@@ -27,11 +56,11 @@ func mustInstallCA() {
 	if err != nil {
 		log.Fatalf("%v", err)
 	}
-	cmd := exec.Command("certutil", "-user", "-addstore", "Root", certPath)
-	out, err := cmd.CombinedOutput()
+	out, err := hiddenCommand("certutil", "-user", "-addstore", "Root", certPath).CombinedOutput()
 	if err != nil {
 		log.Fatalf("安装证书失败：%v\n%s", err, string(out))
 	}
+	refreshCertTrusted()
 	fmt.Println("已把本地根证书装入当前用户信任库。")
 }
 
@@ -41,17 +70,18 @@ func installCAQuiet() error {
 	if _, err := loadOrCreateCA(); err != nil {
 		return err
 	}
-	if caTrusted() {
+	if caTrustedNow() {
 		return nil
 	}
 	certPath, _, err := caFiles()
 	if err != nil {
 		return err
 	}
-	out, err := exec.Command("certutil", "-user", "-addstore", "Root", certPath).CombinedOutput()
+	out, err := hiddenCommand("certutil", "-user", "-addstore", "Root", certPath).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%v\n%s", err, string(out))
 	}
+	refreshCertTrusted()
 	return nil
 }
 
@@ -60,20 +90,21 @@ func uninstallCA() error {
 	if err != nil {
 		return err
 	}
-	cmd := exec.Command("certutil", "-user", "-delstore", "Root", thumb)
-	if out, err := cmd.CombinedOutput(); err != nil {
+	out, err := hiddenCommand("certutil", "-user", "-delstore", "Root", thumb).CombinedOutput()
+	if err != nil {
 		return fmt.Errorf("%v\n%s", err, string(out))
 	}
+	refreshCertTrusted()
 	return nil
 }
 
-// caTrusted reports whether our CA (by thumbprint) is present in the user Root store.
-func caTrusted() bool {
+// caTrustedNow does the actual certutil check (spawns a hidden certutil process).
+func caTrustedNow() bool {
 	thumb, err := caThumbprint()
 	if err != nil {
 		return false
 	}
-	out, err := exec.Command("certutil", "-user", "-store", "Root", thumb).CombinedOutput()
+	out, err := hiddenCommand("certutil", "-user", "-store", "Root", thumb).CombinedOutput()
 	if err != nil {
 		return false
 	}
