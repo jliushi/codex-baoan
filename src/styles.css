@@ -440,3 +440,30 @@ button:focus-visible, input:focus-visible, select:focus-visible {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
 }
+
+/* 接入控制栏 + 分词器指纹（对标 CC Switch 视觉，复用既有变量） */
+.guard-bar{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:14px 16px;background:hsl(var(--card));border:1px solid hsl(var(--border));border-radius:var(--radius)}
+.guard-step{display:flex;align-items:center;gap:10px}
+.guard-copy{display:flex;flex-direction:column;min-width:0;flex:1}
+.guard-copy strong{font-size:13px}
+.guard-copy small{font-size:11px;color:hsl(var(--muted-foreground));line-height:1.4}
+.guard-dot{width:9px;height:9px;border-radius:50%;flex:0 0 auto}
+.guard-dot.ok{background:hsl(var(--green))}
+.guard-dot.warn{background:hsl(var(--amber))}
+.guard-dot.idle{background:hsl(var(--muted-foreground))}
+.guard-btn{display:inline-flex;align-items:center;gap:6px;border:0;background:hsl(var(--primary));color:hsl(var(--primary-foreground));border-radius:8px;padding:7px 12px;font:inherit;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap}
+.guard-btn.ghost{background:hsl(var(--card));border:1px solid hsl(var(--border));color:hsl(var(--foreground));font-weight:500}
+.guard-btn:disabled{opacity:.5;cursor:default}
+.guard-ok-icon{color:hsl(var(--green))}
+.guard-warn-icon{color:hsl(var(--amber))}
+.guard-notice{grid-column:1/-1;margin:0;font-size:12px;color:hsl(var(--muted-foreground));background:hsl(var(--muted));border-radius:8px;padding:9px 12px}
+.spin{animation:guard-spin 1s linear infinite}
+@keyframes guard-spin{to{transform:rotate(360deg)}}
+.fingerprint-panel{margin-top:0}
+.fingerprint-empty{color:hsl(var(--muted-foreground));font-size:12.5px;line-height:1.7;padding:8px 2px}
+.fingerprint-note{color:hsl(var(--muted-foreground));font-size:11.5px;max-width:38ch}
+.family-tag{display:inline-block;font-size:11px;padding:2px 9px;border-radius:999px;white-space:nowrap}
+.family-tag.tone-green{background:hsl(var(--green-soft));color:hsl(var(--green))}
+.family-tag.tone-red{background:hsl(var(--red-soft));color:hsl(var(--red))}
+.family-tag.tone-muted{background:hsl(var(--muted));color:hsl(var(--muted-foreground))}
+@media(max-width:720px){.guard-bar{grid-template-columns:1fr}}

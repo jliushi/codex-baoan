@@ -13,6 +13,9 @@ import { categoryLabel } from "../utils/auditLabels";
 import { AnomalyTable } from "../components/audit/AnomalyTable";
 import { MetricCard } from "../components/audit/MetricCard";
 import { ModelBreakdownTable } from "../components/audit/ModelBreakdownTable";
+import { GuardControls } from "../components/audit/GuardControls";
+import { FingerprintPanel } from "../components/audit/FingerprintPanel";
+import { useGuard } from "../hooks/useGuard";
 
 interface OverviewPageProps {
   report: AuditReport;
@@ -33,8 +36,17 @@ export function OverviewPage({
   onShowAll,
   onSelectRow,
 }: OverviewPageProps) {
+  const guard = useGuard(report.date);
   return (
     <div className="page-stack">
+      <GuardControls
+        status={guard.status}
+        busy={guard.busy}
+        notice={guard.notice}
+        onInstallCert={() => void guard.run("install_cert")}
+        onAttach={() => void guard.run("attach_ccswitch")}
+        onDetach={() => void guard.run("detach_ccswitch")}
+      />
       <section className="metric-grid" aria-label="当日汇总">
         <MetricCard
           label="分析请求"
@@ -129,6 +141,8 @@ export function OverviewPage({
           </ul>
         </aside>
       </section>
+
+      <FingerprintPanel verdicts={guard.fingerprints} />
 
       <section className="panel recent-panel">
         <div className="panel-heading recent-heading">

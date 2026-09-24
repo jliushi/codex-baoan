@@ -44,3 +44,22 @@ export interface AuditReport {
 }
 
 export type AuditPage = "overview" | "requests" | "evidence";
+
+export interface GuardStatus {
+  cert_trusted: boolean;
+  ccswitch_found: boolean;
+  attached: boolean;
+  provider: string;
+  proxy_url: string;
+}
+
+export interface GroupVerdict {
+  requested_model: string;
+  reported_models: string[];
+  samples: number;
+  family: string;
+  family_label: string;
+  slope: number;
+  rmse: number;
+  note: string;
+}
