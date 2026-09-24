@@ -48,7 +48,8 @@ export type AuditPage = "overview" | "requests" | "evidence";
 export interface GuardStatus {
   cert_trusted: boolean;
   ccswitch_found: boolean;
-  attached: boolean;
+  routed: boolean;
+  ccswitch_proxy: string;
   provider: string;
   proxy_url: string;
 }

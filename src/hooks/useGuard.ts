@@ -31,14 +31,11 @@ export function useGuard(date: string) {
   }, [refreshStatus, refreshFingerprints]);
 
   const run = useCallback(
-    async (cmd: "install_cert" | "uninstall_cert" | "attach_ccswitch" | "detach_ccswitch") => {
+    async (cmd: "install_cert" | "uninstall_cert") => {
       setBusy(true);
       setNotice(null);
       try {
-        const result = await invoke<unknown>(cmd);
-        if (result && typeof result === "object" && "message" in result) {
-          setNotice(String((result as { message: unknown }).message));
-        }
+        await invoke<unknown>(cmd);
       } catch (cause) {
         setNotice(typeof cause === "string" ? cause : "操作失败");
       } finally {

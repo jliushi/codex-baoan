@@ -44,8 +44,6 @@ export function OverviewPage({
         busy={guard.busy}
         notice={guard.notice}
         onInstallCert={() => void guard.run("install_cert")}
-        onAttach={() => void guard.run("attach_ccswitch")}
-        onDetach={() => void guard.run("detach_ccswitch")}
       />
       <section className="metric-grid" aria-label="当日汇总">
         <MetricCard
