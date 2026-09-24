@@ -1,6 +1,14 @@
-/*.exe
-guard.exe
-guard.out
-/data/
+# build output
 /dist/
+/src-tauri/target/
 /node_modules/
+
+# runtime / local
+/data/
+/*.exe
+
+# tauri codegen (regenerated on build)
+/src-tauri/gen/schemas/
+
+# temp icon source
+/appicon.png
