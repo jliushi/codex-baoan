@@ -14,7 +14,7 @@ fn shanghai() -> FixedOffset {
     FixedOffset::east_opt(TZ_OFFSET_SECS).expect("valid offset")
 }
 
-fn day_window(date: &str) -> Result<(i64, i64), String> {
+pub fn day_window(date: &str) -> Result<(i64, i64), String> {
     let day = NaiveDate::parse_from_str(date, "%Y-%m-%d")
         .map_err(|_| format!("日期格式应为 YYYY-MM-DD：{date}"))?;
     let midnight = day.and_hms_opt(0, 0, 0).ok_or("无法构造当日零点")?;

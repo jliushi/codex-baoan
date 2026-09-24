@@ -21,6 +21,14 @@ serde_json = "1"
 chrono = { version = "0.4", features = ["serde"] }
 dirs = "5"
 rusqlite = { version = "0.32", features = ["bundled"] }
+hudsucker = "0.25.0"
+rcgen = { version = "0.14.10", features = ["pem"] }
+tiktoken-rs = "0.12.0"
+tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "sync", "time", "io-util", "net"] }
+http-body-util = "0.1.5"
+async-stream = "0.3.6"
+bytes = "1.12.1"
+futures = "0.3.34"
 
 # --- MITM + tokenizer fingerprint: wired in after the Tauri shell builds clean ---
 # hudsucker = { version = "0.23", features = ["rustls-client", "full"] }
